@@ -25,6 +25,7 @@ from chromadb.segment.impl.vector.local_persistent_hnsw import (
     PersistentLocalHnswSegment,
 )
 
+from chromadb.test.property.strategies import test_hnsw_config
 from pytest import FixtureRequest
 from itertools import count
 import tempfile
@@ -112,7 +113,7 @@ def create_random_segment_definition() -> Segment:
         scope=SegmentScope.VECTOR,
         topic="persistent://test/test/test_topic_1",
         collection=None,
-        metadata=None,
+        metadata=test_hnsw_config,
     )
 
 
@@ -487,3 +488,31 @@ def test_upsert(
     result = segment.get_vectors(ids=["no_such_record"])
     assert len(result) == 1
     assert approx_equal_vector(result[0]["embedding"], [42, 42])
+
+
+def test_delete_without_add(
+    system: System,
+    vector_reader: Type[VectorReader],
+) -> None:
+    producer = system.instance(Producer)
+    system.reset_state()
+    segment_definition = create_random_segment_definition()
+    topic = str(segment_definition["topic"])
+
+    segment = vector_reader(system, segment_definition)
+    segment.start()
+
+    assert segment.count() == 0
+
+    delete_record = SubmitEmbeddingRecord(
+        id="not_in_db",
+        embedding=None,
+        encoding=None,
+        metadata=None,
+        operation=Operation.DELETE,
+    )
+
+    try:
+        producer.submit_embedding(topic, delete_record)
+    except BaseException:
+        pytest.fail("Unexpected error. Deleting on an empty segment should not raise.")
